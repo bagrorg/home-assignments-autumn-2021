@@ -1,0 +1,17 @@
+click
+good
+imageio<=2.4.1
+matplotlib
+moviepy<1.0.0
+numpy
+opencv-python
+pims
+PyOpenGL
+pyquaternion
+pyyaml
+recordclass
+scikit-image
+scikit-learn
+scipy
+sortednp
+transforms3d
