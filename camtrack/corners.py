@@ -48,15 +48,27 @@ class _CornerStorageBuilder:
 
 def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
-    # TODO
+    # constants
+    maxCorners = 2000
+    qualityLevel = 0.01
+    minDistance = 100
+    blockSize = 10
+    gradientSize = 3
+    useHarrisDetector = False
+    k = 0.04
+
     image_0 = frame_sequence[0]
-    corners = FrameCorners(
-        np.array([0]),
-        np.array([[0, 0]]),
-        np.array([55])
-    )
+    # Copy the source image
+    copy = np.copy(image_0)
+    # Apply corner detection
+    corners = FrameCorners(cv2.goodFeaturesToTrack(image_0, maxCorners, qualityLevel, minDistance, None, \
+        blockSize=blockSize, gradientSize=gradientSize, useHarrisDetector=useHarrisDetector, k=k))
+
     builder.set_corners_at_frame(0, corners)
+
     for frame, image_1 in enumerate(frame_sequence[1:], 1):
+        corners = FrameCorners(cv2.goodFeaturesToTrack(image_1, maxCorners, qualityLevel, minDistance, None, \
+            blockSize=blockSize, gradientSize=gradientSize, useHarrisDetector=useHarrisDetector, k=k))
         builder.set_corners_at_frame(frame, corners)
         image_0 = image_1
 
