@@ -27,7 +27,8 @@ from _corners import (
     calc_track_interval_mappings,
     calc_track_len_array_mapping,
     without_short_tracks,
-    create_cli
+    create_cli,
+    filter_frame_corners
 )
 
 
@@ -45,32 +46,93 @@ class _CornerStorageBuilder:
     def build_corner_storage(self):
         return StorageImpl(item[1] for item in sorted(self._corners.items()))
 
+# constants
+maxCorners = 0
+qualityLevel = 0.00003
+minDistance = 25
+blockSize = 5
+gradientSize = 31
+useHarrisDetector = False
+lk_params = dict(winSize=(22, 22),
+                     maxLevel=5,
+                     criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+
+glob_idx = 0
+
+def find_corners(image_0, mask=None):
+    return cv2.goodFeaturesToTrack(image_0, maxCorners, qualityLevel, minDistance, mask, \
+            blockSize=blockSize, gradientSize=gradientSize, useHarrisDetector=useHarrisDetector)
+
+def create_mask(positions, image):
+    mask = np.ones_like(image)
+
+    for x, y in positions:
+        left_lim = max(0, int(x) - minDistance // 2)
+        right_lim = min(image.shape[1], int(x) + minDistance // 2)
+
+        bottom_lim = max(0, int(y) - minDistance // 2)
+        top_lim = min(image.shape[0], int(y) + minDistance // 2)
+        
+        zeros = np.zeros((top_lim - bottom_lim, right_lim - left_lim))
+
+        mask[bottom_lim:top_lim, left_lim:right_lim] = zeros
+
+    return mask.astype(np.uint8)
+
+def to8bit(image):
+        return (image * 255).astype(np.uint8)
+
+
 
 def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
-    # constants
-    maxCorners = 2000
-    qualityLevel = 0.01
-    minDistance = 100
-    blockSize = 10
-    gradientSize = 3
-    useHarrisDetector = False
-    k = 0.04
+    
+    image = frame_sequence[0]
 
-    image_0 = frame_sequence[0]
-    # Copy the source image
-    copy = np.copy(image_0)
-    # Apply corner detection
-    corners = FrameCorners(cv2.goodFeaturesToTrack(image_0, maxCorners, qualityLevel, minDistance, None, \
-        blockSize=blockSize, gradientSize=gradientSize, useHarrisDetector=useHarrisDetector, k=k))
+    corners = find_corners(image)
+    glob_idx = len(corners)
+    idxs = np.arange(0, glob_idx)
+    blocks = np.ones(glob_idx) * blockSize
 
-    builder.set_corners_at_frame(0, corners)
+    prev_frame_corners = FrameCorners(idxs, corners, blocks)
 
-    for frame, image_1 in enumerate(frame_sequence[1:], 1):
-        corners = FrameCorners(cv2.goodFeaturesToTrack(image_1, maxCorners, qualityLevel, minDistance, None, \
-            blockSize=blockSize, gradientSize=gradientSize, useHarrisDetector=useHarrisDetector, k=k))
-        builder.set_corners_at_frame(frame, corners)
-        image_0 = image_1
+    for frame, image in enumerate(frame_sequence[1:], 1):
+        positions, states, _ = cv2.calcOpticalFlowPyrLK(to8bit(frame_sequence[frame - 1]),
+                                                        to8bit(image),
+                                                        prev_frame_corners.points.astype('float32'),
+                                                        None,
+                                                        **lk_params)
+
+        prev_frame_corners = filter_frame_corners(prev_frame_corners, states.ravel() == 1)
+        builder.set_corners_at_frame(frame - 1, prev_frame_corners)
+
+        survived_idxs = prev_frame_corners.ids
+        survived_idxs = survived_idxs.reshape(-1)
+        survived_positions = positions[states.ravel() == 1]
+
+        mask = create_mask(survived_positions, image)
+        
+        corners = find_corners(image, mask=mask)
+
+        if corners is None:
+            new_positions = survived_positions
+            new_idxs = survived_idxs
+        else:
+            corners = corners.reshape(-1, 2)
+            new_idxs = np.arange(glob_idx, glob_idx + len(corners))
+
+            glob_idx = glob_idx + len(corners)
+
+            new_positions = np.concatenate((survived_positions, corners))
+            new_idxs = np.concatenate((survived_idxs, new_idxs))
+
+        blocks = np.ones(len(new_positions)) * blockSize
+
+        prev_frame_corners = FrameCorners(new_idxs, new_positions, blocks)
+    builder.set_corners_at_frame(len(frame_sequence) - 1, prev_frame_corners)
+
+
+
 
 
 def build(frame_sequence: pims.FramesSequence,
