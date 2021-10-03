@@ -47,14 +47,14 @@ class _CornerStorageBuilder:
         return StorageImpl(item[1] for item in sorted(self._corners.items()))
 
 # constants
-maxCorners = 0
-qualityLevel = 0.00003
-minDistance = 25
-blockSize = 5
+maxCorners = 2000
+qualityLevel = 0.02
+minDistance = 10
+blockSize = 10
 gradientSize = 31
 useHarrisDetector = False
-lk_params = dict(winSize=(22, 22),
-                     maxLevel=5,
+lk_params = dict(winSize=(11, 11),
+                     maxLevel=7,
                      criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
 
 glob_idx = 0
