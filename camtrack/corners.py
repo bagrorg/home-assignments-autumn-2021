@@ -59,6 +59,8 @@ lk_params = dict(winSize=(11, 11),
 
 glob_idx = 0
 
+mask_distance = 20
+
 def find_corners(image_0, mask=None):
     return cv2.goodFeaturesToTrack(image_0, maxCorners, qualityLevel, minDistance, mask, \
             blockSize=blockSize, gradientSize=gradientSize, useHarrisDetector=useHarrisDetector)
@@ -67,11 +69,11 @@ def create_mask(positions, image):
     mask = np.ones_like(image)
 
     for x, y in positions:
-        left_lim = max(0, int(x) - minDistance // 2)
-        right_lim = min(image.shape[1], int(x) + minDistance // 2)
+        left_lim = max(0, int(x) - mask_distance // 2)
+        right_lim = min(image.shape[1], int(x) + mask_distance // 2)
 
-        bottom_lim = max(0, int(y) - minDistance // 2)
-        top_lim = min(image.shape[0], int(y) + minDistance // 2)
+        bottom_lim = max(0, int(y) - mask_distance // 2)
+        top_lim = min(image.shape[0], int(y) + mask_distance // 2)
         
         zeros = np.zeros((top_lim - bottom_lim, right_lim - left_lim))
 
