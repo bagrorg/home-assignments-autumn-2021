@@ -23,14 +23,33 @@ from _camtrack import (
     build_correspondences,
     TriangulationParameters,
     triangulate_correspondences,
-    rodrigues_and_translation_to_view_mat3x4
+    rodrigues_and_translation_to_view_mat3x4,
+    check_baseline
 )
+
+range_of_neighbours_frac = 1 / 10
+range_of_near = 2
 
 triang_params = TriangulationParameters(
     max_reprojection_error=7.5,
     min_triangulation_angle_deg=1.0,
     min_depth=0.1)
 iterations = 108
+base_line_min_dist = 0
+
+
+def get_neighbours(i, frames):
+    l = max(0, i - frames * range_of_neighbours_frac / 2)
+    r = min(frames, i + frames * range_of_neighbours_frac / 2)
+
+    res = set(range(l, r))
+    return res
+
+def get_neighbours_without_near_range(i, frames):
+    l_b = max(0, i - range_of_near)
+    r_b = min(frames, i + range_of_near)
+    res = get_neighbours(i, frames) - set(range(l_b, r_b))
+    return res
 
 
 def track_and_calc_colors(camera_parameters: CameraParameters,
@@ -48,9 +67,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
         rgb_sequence[0].shape[0]
     )
 
-
-    # TODO: implement
-
+    ###  INIT PART  ###
     frame_count = len(corner_storage)
     view_mats = [pose_to_view_mat3x4(known_view_1[1])] * frame_count
     point_cloud_builder = PointCloudBuilder()
@@ -81,6 +98,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     used[known_ind1] = True
     used[known_ind2] = True
 
+    good_for_pnp = get_neighbours(known_ind1, frame_count) + get_neighbours(known_ind2, frame_count)
 
     while True:
         best_for_pnp = -1
@@ -91,7 +109,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
         ind2_for_best = None
         corn_for_best = None
 
-        for i in range(frame_count):
+        for i in good_for_pnp:
             if used[i]:
                 continue
 
@@ -132,6 +150,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
 
         #print(best_for_pnp)
         if best_for_pnp == -1:
+            print("WTF")
             break
             
         succ, r_vec, t_vec = cv2.solvePnP(
@@ -153,9 +172,12 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
         best_pts3d = None
         best_ids = None
         cos_med_best = 1
-        for j in range(frame_count):
+        for j in get_neighbours_without_near_range(best_for_pnp, frame_count):
             if not used[j]:
                 continue
+            if not check_baseline(view_mats[frame1], view_mats[i], base_line_min_dist):
+                continue
+
             correspondence = build_correspondences(corner_storage[best_for_pnp], corner_storage[j])
             pts3d, ids, cos_med = triangulate_correspondences(correspondence,
                                                                 view_mats[best_for_pnp],
@@ -168,6 +190,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                 best_ids = ids
         
         point_cloud_builder.add_points(best_ids, best_pts3d)
+        good_for_pnp += get_neighbours(best_for_pnp, frame_count)
         used[best_for_pnp] = True
         
 
