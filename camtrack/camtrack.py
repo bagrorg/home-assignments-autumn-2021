@@ -30,8 +30,8 @@ from _camtrack import (
 range_of_neighbours = 75
 
 triang_params = TriangulationParameters(
-    max_reprojection_error=6,
-    min_triangulation_angle_deg=1,
+    max_reprojection_error=7.5,
+    min_triangulation_angle_deg=1.0,
     min_depth=0.11)
 iterations = 108
 baseline_min_dist = 0
@@ -85,7 +85,9 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                                                         triang_params)
 
     point_cloud_builder.add_points(ids, pts3d)
-    
+    print("Init -- ")
+    print("\tTriangulated points -- ", len(pts3d))
+    print("\tPoints in cloud -- ", len(point_cloud_builder.ids))
     used = [False] * frame_count
     used[known_ind1] = True
     used[known_ind2] = True
@@ -153,7 +155,8 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
 
         if best_for_pnp == -1:
             break  
-
+        print("Frame num -- ", best_for_pnp)
+        print("\tInliers count -- ", len(inliers_for_best))
         succ, r_vec, t_vec = cv2.solvePnP(
             point_cloud_builder.points[ind1_for_best[inliers_for_best.flatten()]],
             corn_for_best.points[ind2_for_best[inliers_for_best.flatten()]],
@@ -180,7 +183,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
             
             if not check_baseline(view_mats[j], view_mats[best_for_pnp], baseline_min_dist):
                 continue
-
+            
             correspondence = build_correspondences(corner_storage[best_for_pnp], corner_storage[j], outliers_for_best)
             pts3d, ids, cos_med = triangulate_correspondences(correspondence,
                                                                 view_mats[best_for_pnp],
@@ -191,8 +194,14 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
             if cos_med < cos_med_best:
                 best_pts3d = pts3d
                 best_ids = ids
+        
         if best_pts3d is not None:
             point_cloud_builder.add_points(best_ids, best_pts3d)
+            print("\tTriangulated points -- ", len(pts3d))
+        else:
+            print("\tTriangulated points -- ", 0)
+        print("\tPoints in cloud -- ", len(point_cloud_builder.ids))
+        print()
 
         good_for_pnp |= ns
         used[best_for_pnp] = True
