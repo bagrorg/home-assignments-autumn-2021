@@ -51,6 +51,7 @@ def _check_and_write_data(data, stream, schema, name):
     except Invalid as err:
         raise DataFormatError('{} format error: {}'.format(name, err))
     yaml.dump(data, stream, Dumper)
+    stream.flush()
 
 
 CameraParameters = namedtuple('CameraParameters', ('fov_y', 'aspect_ratio'))
