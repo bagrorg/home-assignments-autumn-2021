@@ -49,10 +49,12 @@ class _CornerStorageBuilder:
 # constants
 maxCorners = 400
 qualityLevel = 0.04
+
 minDistance = 10
 blockSize = 10
 gradientSize = 31
 useHarrisDetector = False
+
 lk_params = dict(winSize=(8, 8),
                      maxLevel=7,
                      criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
@@ -118,6 +120,7 @@ def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
     
     image = frame_sequence[0]
+
 
     corners, sizes = find_corner_pyramid(image, np.empty((0, 2)), pyrs=5)
     glob_idx = len(corners)
