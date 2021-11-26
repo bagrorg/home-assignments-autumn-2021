@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import cv2
 import sortednp as snp
+import itertools
 
 from corners import CornerStorage
 from data3d import CameraParameters, PointCloud, Pose
@@ -24,7 +25,8 @@ from _camtrack import (
     TriangulationParameters,
     triangulate_correspondences,
     rodrigues_and_translation_to_view_mat3x4,
-    check_baseline
+    check_baseline,
+    eye3x4
 )
 
 range_of_neighbours = 75
@@ -35,6 +37,11 @@ triang_params = TriangulationParameters(
     min_depth=0.11)
 iterations = 108
 baseline_min_dist = 0
+
+inliers_prob = 0.999
+max_distance_to_epipolar_line = 2
+
+homography_test_trashhold = 0.391
 
 def get_neighbours(i, frames):
     l = max(0, i - range_of_neighbours // 2)
@@ -51,7 +58,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                           known_view_2: Optional[Tuple[int, Pose]] = None) \
         -> Tuple[List[Pose], PointCloud]:
     if known_view_1 is None or known_view_2 is None:
-        raise NotImplementedError()
+        known_view_1, known_view_2 = initialize_position(camera_parameters, corner_storage, frame_sequence_path)
 
     rgb_sequence = frameseq.read_rgb_f32(frame_sequence_path)
     intrinsic_mat = to_opencv_camera_mat3x3(
@@ -218,6 +225,79 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     point_cloud = point_cloud_builder.build_point_cloud()
     poses = list(map(view_mat3x4_to_pose, view_mats))
     return poses, point_cloud
+
+def get_frames(frame_cnt):
+    step = 10
+
+    if frame_cnt < step:
+        array_pairs = list(range(0, frame_cnt))
+        return list(itertools.combinations(array_pairs, r=2))
+    else:
+        array_pairs = []
+        for i in range(0, frame_cnt):
+            for j in range(i + step, frame_cnt):
+                array_pairs.append((i, j))
+        return array_pairs
+
+
+
+def initialize_position(camera_parameters: CameraParameters,
+                        corner_storage: CornerStorage,
+                        frame_sequence_path: str):
+
+    rgb_sequence = frameseq.read_rgb_f32(frame_sequence_path)
+    intrinsic_mat = to_opencv_camera_mat3x3(
+        camera_parameters,
+        rgb_sequence[0].shape[0]
+    )
+
+
+    frame_cnt = len(corner_storage)
+    frames = get_frames(frame_cnt)
+    best_view = None
+    cnt = -1
+
+    for known_ind1, known_ind2 in frames:
+        frame1 = corner_storage[known_ind1]
+        frame2 = corner_storage[known_ind2]
+        
+        correspondence = build_correspondences(frame1, frame2)
+        
+        E, inliers = cv2.findEssentialMat(
+            correspondence.points_1,
+            correspondence.points_2,
+            intrinsic_mat,
+            cv2.RANSAC,
+            inliers_prob,
+            max_distance_to_epipolar_line,
+            iterations
+        )
+
+        homogr, homogr_inliers = cv2.findHomography(
+            correspondence.points_1,
+            correspondence.points_2,
+            method=cv2.RANSAC,
+            ransacReprojThreshold=1,
+            confidence=0.99
+        )
+
+        rot1, rot2, translation = cv2.decomposeEssentialMat(E)
+
+        for rot in (rot1.T, rot2.T):
+            for tran in (translation, -translation):
+                view = pose_to_view_mat3x4(Pose(rot, rot @ tran))
+                _, pts, _ = triangulate_correspondences(correspondence, eye3x4(), view, intrinsic_mat, triang_params)
+                cnt_new = len(pts)
+                if cnt < cnt_new:
+                    best_view = (rot, rot @ tran)
+                    cnt = cnt_new
+
+        if np.count_nonzero(homogr_inliers) / np.count_nonzero(inliers) < homography_test_trashhold:
+            break 
+    
+    return (known_ind1, Pose(*view_mat3x4_to_pose(eye3x4()))), (known_ind2, Pose(*best_view))
+
+
 
 
 if __name__ == '__main__':
