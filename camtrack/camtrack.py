@@ -246,6 +246,7 @@ def get_frames(frame_cnt):
 
 
 def initialize_position(intrinsic_mat, corner_storage):
+    np.random.seed(1337)
     min_corresp = 100
     good_treshold = 900
 
@@ -281,19 +282,21 @@ def initialize_position(intrinsic_mat, corner_storage):
 
         rot1, rot2, translation = cv2.decomposeEssentialMat(E)
 
-        for rot in (rot1.T, rot2.T):
+        for rot in (rot1, rot2):
             for tran in (translation, -translation):
-                view = pose_to_view_mat3x4(Pose(rot, rot @ tran))
-                _, pts, _ = triangulate_correspondences(correspondence, eye3x4(), view, intrinsic_mat, triang_params)
+                view1 = eye3x4()
+                view2 = np.hstack((rot, tran))
+
+                _, pts, _ = triangulate_correspondences(correspondence, view1, view2, intrinsic_mat, triang_params)
                 cnt_new = len(pts)
                 if cnt_new > good_treshold:
-                    return (known_ind1, Pose(*view_mat3x4_to_pose(eye3x4()))), (known_ind2, (Pose(rot, rot @ tran)))
+                    return (known_ind1, view_mat3x4_to_pose(view1)), (known_ind2, view_mat3x4_to_pose(view2))
                 if cnt < cnt_new:
-                    best_view = (rot, rot @ tran)
+                    best_view = view2
                     cnt = cnt_new
 
     
-    return (known_ind1, Pose(*view_mat3x4_to_pose(eye3x4()))), (known_ind2, Pose(*best_view))
+    return (known_ind1, view_mat3x4_to_pose(eye3x4())), (known_ind2, view_mat3x4_to_pose(best_view))
 
 if __name__ == '__main__':
     # pylint:disable=no-value-for-parameter
