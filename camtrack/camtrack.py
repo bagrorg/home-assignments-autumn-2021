@@ -26,7 +26,9 @@ from _camtrack import (
     triangulate_correspondences,
     rodrigues_and_translation_to_view_mat3x4,
     check_baseline,
-    eye3x4
+    eye3x4,
+    _remove_correspondences_with_ids,
+    Correspondences
 )
 
 range_of_neighbours = 75
@@ -39,9 +41,9 @@ iterations = 108
 baseline_min_dist = 0
 
 inliers_prob = 0.999
-max_distance_to_epipolar_line = 2
+max_distance_to_epipolar_line = 1.5
 
-homography_test_trashhold = 0.391
+homography_test_trashhold = 0.7
 
 def get_neighbours(i, frames):
     l = max(0, i - range_of_neighbours // 2)
@@ -57,14 +59,16 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                           known_view_1: Optional[Tuple[int, Pose]] = None,
                           known_view_2: Optional[Tuple[int, Pose]] = None) \
         -> Tuple[List[Pose], PointCloud]:
-    if known_view_1 is None or known_view_2 is None:
-        known_view_1, known_view_2 = initialize_position(camera_parameters, corner_storage, frame_sequence_path)
-
     rgb_sequence = frameseq.read_rgb_f32(frame_sequence_path)
     intrinsic_mat = to_opencv_camera_mat3x3(
         camera_parameters,
         rgb_sequence[0].shape[0]
     )
+
+    if known_view_1 is None or known_view_2 is None:
+        known_view_1, known_view_2 = initialize_position(intrinsic_mat, corner_storage)
+
+    
 
     ###  INIT PART  ###
     frame_count = len(corner_storage)
@@ -227,7 +231,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     return poses, point_cloud
 
 def get_frames(frame_cnt):
-    step = 10
+    step = 20
 
     if frame_cnt < step:
         array_pairs = list(range(0, frame_cnt))
@@ -235,22 +239,15 @@ def get_frames(frame_cnt):
     else:
         array_pairs = []
         for i in range(0, frame_cnt):
-            for j in range(i + step, frame_cnt):
+            for j in range(i, min(i + step, frame_cnt)):
                 array_pairs.append((i, j))
         return array_pairs
 
 
 
-def initialize_position(camera_parameters: CameraParameters,
-                        corner_storage: CornerStorage,
-                        frame_sequence_path: str):
-
-    rgb_sequence = frameseq.read_rgb_f32(frame_sequence_path)
-    intrinsic_mat = to_opencv_camera_mat3x3(
-        camera_parameters,
-        rgb_sequence[0].shape[0]
-    )
-
+def initialize_position(intrinsic_mat, corner_storage):
+    min_corresp = 100
+    good_treshold = 900
 
     frame_cnt = len(corner_storage)
     frames = get_frames(frame_cnt)
@@ -262,24 +259,25 @@ def initialize_position(camera_parameters: CameraParameters,
         frame2 = corner_storage[known_ind2]
         
         correspondence = build_correspondences(frame1, frame2)
-        
+        if len(correspondence[0]) < min_corresp:
+                continue
         E, inliers = cv2.findEssentialMat(
             correspondence.points_1,
             correspondence.points_2,
             intrinsic_mat,
             cv2.RANSAC,
-            inliers_prob,
-            max_distance_to_epipolar_line,
-            iterations
+            prob=0.999
         )
+        correspondence = _remove_correspondences_with_ids(
+                        correspondence, np.argwhere(inliers.flatten() == 0).astype(np.int64))
 
         homogr, homogr_inliers = cv2.findHomography(
             correspondence.points_1,
             correspondence.points_2,
-            method=cv2.RANSAC,
-            ransacReprojThreshold=1,
-            confidence=0.99
+            method=cv2.RANSAC
         )
+        if np.count_nonzero(homogr_inliers) / np.count_nonzero(inliers) > homography_test_trashhold:
+            continue 
 
         rot1, rot2, translation = cv2.decomposeEssentialMat(E)
 
@@ -288,17 +286,14 @@ def initialize_position(camera_parameters: CameraParameters,
                 view = pose_to_view_mat3x4(Pose(rot, rot @ tran))
                 _, pts, _ = triangulate_correspondences(correspondence, eye3x4(), view, intrinsic_mat, triang_params)
                 cnt_new = len(pts)
+                if cnt_new > good_treshold:
+                    return (known_ind1, Pose(*view_mat3x4_to_pose(eye3x4()))), (known_ind2, (Pose(rot, rot @ tran)))
                 if cnt < cnt_new:
                     best_view = (rot, rot @ tran)
                     cnt = cnt_new
 
-        if np.count_nonzero(homogr_inliers) / np.count_nonzero(inliers) < homography_test_trashhold:
-            break 
     
     return (known_ind1, Pose(*view_mat3x4_to_pose(eye3x4()))), (known_ind2, Pose(*best_view))
-
-
-
 
 if __name__ == '__main__':
     # pylint:disable=no-value-for-parameter
