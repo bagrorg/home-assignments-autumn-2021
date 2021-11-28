@@ -47,7 +47,7 @@ class _CornerStorageBuilder:
         return StorageImpl(item[1] for item in sorted(self._corners.items()))
 
 # constants
-maxCorners = 2000
+maxCorners = 0
 qualityLevel = 0.02
 minDistance = 10
 blockSize = 10

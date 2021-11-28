@@ -41,9 +41,9 @@ iterations = 108
 baseline_min_dist = 0
 
 inliers_prob = 0.999
-max_distance_to_epipolar_line = 1.5
 
 homography_test_trashhold = 0.7
+
 
 def get_neighbours(i, frames):
     l = max(0, i - range_of_neighbours // 2)
@@ -66,15 +66,13 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     )
 
     if known_view_1 is None or known_view_2 is None:
-        known_view_1, known_view_2 = initialize_position(intrinsic_mat, corner_storage)
-
-    
+        known_view_1, known_view_2 = initialize_position(
+            intrinsic_mat, corner_storage)
 
     ###  INIT PART  ###
     frame_count = len(corner_storage)
     view_mats = [pose_to_view_mat3x4(known_view_1[1])] * frame_count
     point_cloud_builder = PointCloudBuilder()
-
 
     known_ind1 = known_view_1[0]
     known_ind2 = known_view_2[0]
@@ -87,13 +85,13 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
 
     frame1 = corner_storage[known_ind1]
     frame2 = corner_storage[known_ind2]
-    
+
     correspondence = build_correspondences(frame1, frame2)
     pts3d, ids, cos_med = triangulate_correspondences(correspondence,
-                                                        view_mat1,
-                                                        view_mat2,
-                                                        intrinsic_mat,
-                                                        triang_params)
+                                                      view_mat1,
+                                                      view_mat2,
+                                                      intrinsic_mat,
+                                                      triang_params)
 
     point_cloud_builder.add_points(ids, pts3d)
     print("Init -- ")
@@ -103,7 +101,8 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     used[known_ind1] = True
     used[known_ind2] = True
 
-    good_for_pnp = get_neighbours(known_ind1, frame_count) | get_neighbours(known_ind2, frame_count)
+    good_for_pnp = get_neighbours(
+        known_ind1, frame_count) | get_neighbours(known_ind2, frame_count)
 
     ## MAIN LOOP ##
     while True:
@@ -121,7 +120,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                 continue
 
             corn = corner_storage[i]
-            inds, (ind1, ind2) = snp.intersect(point_cloud_builder.ids.flatten(), 
+            inds, (ind1, ind2) = snp.intersect(point_cloud_builder.ids.flatten(),
                                                corn.ids.flatten(), indices=True)
 
             if len(inds) < 4:
@@ -165,7 +164,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
                     outliers_for_best = inds[~mask]
 
         if best_for_pnp == -1:
-            break  
+            break
         print("Frame num -- ", best_for_pnp)
         print("\tInliers count -- ", len(inliers_for_best))
         succ, r_vec, t_vec = cv2.solvePnP(
@@ -182,7 +181,8 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
         if not succ:
             continue
 
-        view_mats[best_for_pnp] = rodrigues_and_translation_to_view_mat3x4(r_vec, t_vec)
+        view_mats[best_for_pnp] = rodrigues_and_translation_to_view_mat3x4(
+            r_vec, t_vec)
 
         best_pts3d = None
         best_ids = None
@@ -191,21 +191,22 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
         for j in ns:
             if not used[j]:
                 continue
-            
+
             if not check_baseline(view_mats[j], view_mats[best_for_pnp], baseline_min_dist):
                 continue
-            
-            correspondence = build_correspondences(corner_storage[best_for_pnp], corner_storage[j], outliers_for_best)
+
+            correspondence = build_correspondences(
+                corner_storage[best_for_pnp], corner_storage[j], outliers_for_best)
             pts3d, ids, cos_med = triangulate_correspondences(correspondence,
-                                                                view_mats[best_for_pnp],
-                                                                view_mats[j],
-                                                                intrinsic_mat,
-                                                                triang_params)
+                                                              view_mats[best_for_pnp],
+                                                              view_mats[j],
+                                                              intrinsic_mat,
+                                                              triang_params)
 
             if cos_med < cos_med_best:
                 best_pts3d = pts3d
                 best_ids = ids
-        
+
         if best_pts3d is not None:
             point_cloud_builder.add_points(best_ids, best_pts3d)
             print("\tTriangulated points -- ", len(pts3d))
@@ -216,7 +217,6 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
 
         good_for_pnp |= ns
         used[best_for_pnp] = True
-        
 
     calc_point_cloud_colors(
         point_cloud_builder,
@@ -229,6 +229,7 @@ def track_and_calc_colors(camera_parameters: CameraParameters,
     point_cloud = point_cloud_builder.build_point_cloud()
     poses = list(map(view_mat3x4_to_pose, view_mats))
     return poses, point_cloud
+
 
 def get_frames(frame_cnt):
     step = 20
@@ -244,11 +245,9 @@ def get_frames(frame_cnt):
         return array_pairs
 
 
-
 def initialize_position(intrinsic_mat, corner_storage):
-    np.random.seed(1337)
-    min_corresp = 100
-    good_treshold = 900
+    min_corresp_for_frames = 130
+    good_cnt_treshold = 900
 
     frame_cnt = len(corner_storage)
     frames = get_frames(frame_cnt)
@@ -258,27 +257,28 @@ def initialize_position(intrinsic_mat, corner_storage):
     for known_ind1, known_ind2 in frames:
         frame1 = corner_storage[known_ind1]
         frame2 = corner_storage[known_ind2]
-        
+
         correspondence = build_correspondences(frame1, frame2)
-        if len(correspondence[0]) < min_corresp:
-                continue
+        if len(correspondence[0]) < min_corresp_for_frames:
+            continue
+
         E, inliers = cv2.findEssentialMat(
             correspondence.points_1,
             correspondence.points_2,
             intrinsic_mat,
             cv2.RANSAC,
-            prob=0.999
+            prob=inliers_prob
         )
         correspondence = _remove_correspondences_with_ids(
-                        correspondence, np.argwhere(inliers.flatten() == 0).astype(np.int64))
+            correspondence, np.argwhere(inliers.flatten() == 0).astype(np.int64))
 
-        homogr, homogr_inliers = cv2.findHomography(
+        _, homogr_inliers = cv2.findHomography(
             correspondence.points_1,
             correspondence.points_2,
             method=cv2.RANSAC
         )
         if np.count_nonzero(homogr_inliers) / np.count_nonzero(inliers) > homography_test_trashhold:
-            continue 
+            continue
 
         rot1, rot2, translation = cv2.decomposeEssentialMat(E)
 
@@ -287,16 +287,18 @@ def initialize_position(intrinsic_mat, corner_storage):
                 view1 = eye3x4()
                 view2 = np.hstack((rot, tran))
 
-                _, pts, _ = triangulate_correspondences(correspondence, view1, view2, intrinsic_mat, triang_params)
+                _, pts, _ = triangulate_correspondences(
+                    correspondence, view1, view2, intrinsic_mat, triang_params)
                 cnt_new = len(pts)
-                if cnt_new > good_treshold:
-                    return (known_ind1, view_mat3x4_to_pose(view1)), (known_ind2, view_mat3x4_to_pose(view2))
+
                 if cnt < cnt_new:
                     best_view = view2
                     cnt = cnt_new
+        if cnt > good_cnt_treshold:
+            break
 
-    
     return (known_ind1, view_mat3x4_to_pose(eye3x4())), (known_ind2, view_mat3x4_to_pose(best_view))
+
 
 if __name__ == '__main__':
     # pylint:disable=no-value-for-parameter
